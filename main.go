@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,10 +49,25 @@ func main() {
 	}
 }
 
+func HandleSignals(mountpoint string) {
+	ch := make(chan os.Signal, 1)
+	go func() {
+		for range ch {
+			fmt.Printf("\rUnmounting %s\n", mountpoint)
+			fuse.Unmount(mountpoint)
+			signal.Stop(ch)
+			return
+		}
+	}()
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+}
+
 func mount(path, mountpoint string) (err error) {
 	c, err := fuse.Mount(mountpoint,
 		fuse.FSName("iphone"),
 		fuse.Subtype("iphonebackupfs"),
+		//fuse.AllowOther(),
+		fuse.ReadOnly(),
 	)
 	if err != nil {
 		return err
@@ -58,6 +75,8 @@ func mount(path, mountpoint string) (err error) {
 	defer c.Close()
 
 	filesys := &FS{DB: &DB{}, File: path}
+
+	HandleSignals(mountpoint)
 
 	if err := fs.Serve(c, filesys); err != nil {
 		return err
@@ -84,7 +103,11 @@ type FileNode struct {
 }
 
 type FileHandle struct {
-	fh io.ReadSeekCloser
+	sync.Mutex
+	fh    io.ReadSeekCloser
+	inode uint64
+	id    string
+	pos   int64
 }
 
 var root string
@@ -272,30 +295,36 @@ func (f *FileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.O
 
 	fh, err := os.Open(file)
 	if err == nil {
-		resp.Flags |= fuse.OpenDirectIO
-		return &FileHandle{fh}, nil
+		//resp.Flags |= fuse.OpenDirectIO
+		return &FileHandle{fh: fh, inode: f.inode, id: f.id}, nil
 	}
 
 	return nil, err
 }
 
-func (f *FileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
-	err := f.fh.Close()
-	return err
+func (f *FileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) (err error) {
+	err = f.fh.Close()
+	return
 }
 
-func (f *FileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
-	buf := make([]byte, req.Size)
-	_, err := f.fh.Seek(req.Offset, os.SEEK_SET)
+func (f *FileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) (err error) {
+	f.Lock()
+	defer f.Unlock()
+
+	_, err = f.fh.Seek(req.Offset, os.SEEK_SET)
 	if err != nil {
-		return err
+		return
 	}
+
+	buf := make([]byte, req.Size)
 	n, err := f.fh.Read(buf)
 	if err != nil {
+		if err == io.EOF {
+			return nil
+		}
 		return err
 	}
 	resp.Data = buf[:n]
-
 	return err
 }
 
