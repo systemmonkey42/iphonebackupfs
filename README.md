@@ -8,10 +8,24 @@ This has only been tested on linux
 
 Use `git clone` to obtain the default branch (develop) and install __go 1.19+__
 
-Build:
+## Dependencies
+
+The following packages (when building on ubuntu) are needed:
+- fuse3
+- libfuse3-dev
+
+## Building
+
+Build with the following command:
 
 ```
 go build .
+```
+
+If you have issues building, or simply want a smaller executable, try the following:
+
+```
+go build --tags osusergo,netgo -o iphonefs -ldflags "-w -s" .
 ```
 
 Move the resulting binary to somewhere accessible
