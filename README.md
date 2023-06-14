@@ -48,6 +48,22 @@ umount /mnt/path
 
 ```
 
+## Environment Variables
+
+The following environment variables are used when starting the application
+
+Name|Description
+---|---
+ROOT|Root of the backup folder (directory containing manifest.db
+MOUNT|Directory to use as mountpoint
+
+Note: To use `$ROOT` but specify a mount point on the command line, specify the empty string `''` as the backup folder.
+For example:
+```
+iphonefs '' /mnt/data
+```
+
+
 # Issues
 
 - All files are readonly
