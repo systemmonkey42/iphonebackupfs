@@ -1,19 +1,14 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
-	"sync"
 	"syscall"
-	"time"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -21,6 +16,18 @@ import (
 )
 
 var progName = filepath.Base(os.Args[0])
+
+type Globals struct {
+	db          DB
+	Debug       bool
+	AllDomains  bool
+	ListDomains bool
+	Domain      string
+	Root        string
+	FSRoot      NodeEntry
+}
+
+var global Globals = Globals{}
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "%s: invalid parameters\n", progName)
@@ -30,22 +37,103 @@ type DB struct {
 	*sql.DB
 }
 
+func init() {
+	flag.BoolVar(&global.AllDomains, "A", false, "Show all backup file domains.")
+	flag.BoolVar(&global.ListDomains, "L", false, "List all domains in backup.")
+	flag.BoolVar(&global.Debug, "v", false, "Verbose logging.")
+	flag.StringVar(&global.Domain, "d", "CameraRollDomain", "Select domain to mount.")
+}
+
+func getBackupDir() (root string) {
+	if flag.NArg() >= 0 {
+		root = flag.Arg(0)
+	}
+	if root == "" {
+		root = os.Getenv("ROOT")
+	}
+	return
+}
+
+func getMountPoint() (mount string) {
+	if flag.NArg() >= 1 {
+		mount = flag.Arg(1)
+	}
+
+	if mount == "" {
+		mount = os.Getenv("MOUNT")
+	}
+	return
+}
+
+func openDB() error {
+	global.Root = getBackupDir()
+
+	debug("Opening database in %s", global.Root)
+	err := global.db.OpenDB(global.Root)
+	if err != nil {
+		log.Fatalf("%s: %v", global.Root, err)
+	}
+	return err
+}
+
+func debug(fmt string, args ...any) {
+	if global.Debug {
+		log.Printf(fmt, args...)
+	}
+}
+
 func main() {
+	var err error
 	log.SetFlags(0)
 	log.SetPrefix(progName + ": ")
 	flag.Parse()
-	if flag.NArg() != 2 {
+
+	if flag.NArg() > 2 {
 		usage()
 		os.Exit(2)
 	}
 
-	root = flag.Arg(0)
-	if root == "" {
-		root = os.Getenv("ROOT")
-	}
-	mountpoint := flag.Arg(1)
-	if err := mount(root, mountpoint); err != nil {
-		log.Fatal(err)
+	switch {
+	case global.ListDomains:
+
+		err = openDB()
+		if err != nil {
+			log.Fatalf("%s: %v", global.Root, err)
+		}
+
+		domains, err := global.db.GetDomains()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for d := range domains {
+			fmt.Printf("%s\n", domains[d])
+		}
+
+	default:
+
+		mountpoint := getMountPoint()
+		if mountpoint == "" {
+			log.Fatalf("mount point required.")
+		}
+		debug("Using mountpoint: %s\n", mountpoint)
+
+		err = openDB()
+		if err != nil {
+			log.Fatalf("%s: %v", global.Root, err)
+		}
+		debug("Database opened successfully")
+
+		global.FSRoot, err = global.db.ReadListing()
+
+		if err != nil {
+			log.Fatalf("%s: %v\n", global.Root, err)
+		}
+
+		if err = mount(global.Root, mountpoint); err != nil {
+			log.Fatal(err)
+		}
+		debug("Completed.")
 	}
 }
 
@@ -53,12 +141,14 @@ func HandleSignals(mountpoint string) {
 	ch := make(chan os.Signal, 1)
 	go func() {
 		for range ch {
-			fmt.Printf("\rUnmounting %s\n", mountpoint)
+			fmt.Printf("\rCtrl-C detected. Unmounting %s\n", mountpoint)
+			debug("Unmounting filesystem")
 			fuse.Unmount(mountpoint)
 			signal.Stop(ch)
 			return
 		}
 	}()
+	debug("Enabling signal handlers")
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 }
 
@@ -72,278 +162,18 @@ func mount(path, mountpoint string) (err error) {
 	if err != nil {
 		return err
 	}
+	debug("FUSE iniitiaalized")
 	defer c.Close()
 
 	filesys := &FS{DB: &DB{}, File: path}
 
 	HandleSignals(mountpoint)
 
+	debug("Serving files")
 	if err := fs.Serve(c, filesys); err != nil {
 		return err
 	}
+	debug("File server exited")
 
 	return nil
-}
-
-type FS struct {
-	*DB
-	File string
-}
-
-type DirNode struct {
-	inode   uint64
-	name    string
-	entries map[string]NodeEntry
-}
-
-type FileNode struct {
-	inode uint64
-	name  string
-	id    string
-}
-
-type FileHandle struct {
-	sync.Mutex
-	fh    io.ReadSeekCloser
-	inode uint64
-	id    string
-	pos   int64
-}
-
-var root string
-
-var _ fs.FS = (*FS)(nil)
-var _ fs.Node = (*DirNode)(nil)
-var _ fs.Node = (*FileNode)(nil)
-var _ fs.Handle = (*FileHandle)(nil)
-var _ fs.HandleReleaser = (*FileHandle)(nil)
-
-var _ = fs.NodeRequestLookuper(&DirNode{})
-var _ = fs.NodeOpener(&FileNode{})
-var _ = fs.HandleReadDirAller(&DirNode{})
-
-type NodeEntry interface {
-	fs.Node
-	Add(uint64, string, string)
-	Find(string) NodeEntry
-	Name() string
-	ID() string
-	Dump()
-	Inode() uint64
-}
-
-func (f *FileNode) Dump() {
-	fmt.Printf(" %s [ %s ]\n", f.name, f.id)
-}
-
-func (f *FileNode) Fullname() string {
-	file := filepath.Join(root, f.id[0:2], f.id)
-	return file
-}
-
-func (f *FileNode) Inode() uint64 {
-	return f.inode
-}
-
-func (d *DirNode) Inode() uint64 {
-	return d.inode
-}
-
-func (d *DirNode) Dump() {
-	fmt.Printf("%s /\n", d.name)
-	for i := range d.entries {
-		d.entries[i].Dump()
-	}
-}
-
-func (f *FileNode) Add(inode uint64, id, path string) {
-}
-
-func (f *FileNode) Find(path string) NodeEntry {
-	return f
-}
-
-func (f *FileNode) ID() string {
-	return f.id
-}
-
-func (f *FileNode) Name() string {
-	return f.name
-}
-
-func (d *DirNode) Add(inode uint64, id, path string) {
-	p := strings.Split(path, "/")
-	lp := len(p) - 1
-	fp := d
-	for i := range p {
-		if i == lp {
-			fp.entries[p[i]] = &FileNode{
-				inode: inode,
-				name:  p[i],
-				id:    id,
-			}
-		} else {
-			fn, ok := fp.entries[p[i]]
-			if ok {
-				fp = fn.(*DirNode)
-			} else {
-				fp.entries[p[i]] = &DirNode{
-					inode:   inode,
-					name:    p[i],
-					entries: make(map[string]NodeEntry),
-				}
-				fp = fp.entries[p[i]].(*DirNode)
-			}
-		}
-	}
-	return
-}
-
-func (d *DirNode) Name() string {
-	return d.name
-}
-
-func (d *DirNode) ID() string {
-	return ""
-}
-
-func (d *DirNode) Find(path string) NodeEntry {
-	return nil
-}
-
-func (d *DB) ReadListing() (NodeEntry, error) {
-
-	r, err := d.Query("select fileid,relativepath,domain from files where flags=1")
-
-	if err != nil {
-		return nil, err
-	}
-
-	var dirs NodeEntry = &DirNode{
-		entries: make(map[string]NodeEntry),
-	}
-
-	inode := uint64(1)
-	for r.Next() {
-		var id, path, domain string
-		r.Scan(&id, &path, &domain)
-		if domain == "CameraRollDomain" {
-			dirs.Add(inode, id, path)
-			inode++
-		}
-	}
-
-	return dirs, nil
-}
-
-func (d *DB) OpenDB(file string) (list NodeEntry, err error) {
-	d.DB, err = sql.Open("sqlite3", fmt.Sprintf("file:%s/Manifest.db?mode=ro", file))
-	if err == nil {
-		list, err = d.ReadListing()
-	}
-	return list, err
-}
-
-func (f *FS) Root() (n fs.Node, err error) {
-	n = (*DirNode)(nil)
-
-	if listing, err := f.DB.OpenDB(f.File); err == nil {
-		return listing, nil
-	}
-	return nil, fuse.ENOENT
-}
-
-func (d *DirNode) Attr(ctx context.Context, attr *fuse.Attr) error {
-	attr.Atime = time.Now()
-	attr.Ctime = attr.Atime
-	attr.Mtime = attr.Atime
-	attr.Size = uint64(len(d.entries))
-	attr.Mode = os.ModeDir | 0755
-	return nil
-}
-
-func (d *DirNode) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.LookupResponse) (fs.Node, error) {
-	if v, ok := d.entries[req.Name]; ok {
-		return v, nil
-	}
-	return nil, fuse.ENOENT
-}
-
-func (f *FileNode) Attr(ctx context.Context, attr *fuse.Attr) error {
-	file := f.Fullname()
-
-	if info, err := os.Stat(file); err == nil {
-		stat := info.Sys().(*syscall.Stat_t)
-
-		attr.Mtime = info.ModTime()
-		attr.Atime = time.Unix(int64(stat.Atim.Sec), int64(stat.Atim.Nsec))
-		attr.Ctime = time.Unix(int64(stat.Ctim.Sec), int64(stat.Ctim.Nsec))
-		attr.Size = uint64(info.Size())
-		attr.Mode = info.Mode()
-	} else {
-		return err
-	}
-	return nil
-}
-
-func (f *FileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
-	file := f.Fullname()
-
-	if !req.Flags.IsReadOnly() {
-		return nil, fuse.Errno(syscall.EACCES)
-	}
-
-	fh, err := os.Open(file)
-	if err == nil {
-		//resp.Flags |= fuse.OpenDirectIO
-		return &FileHandle{fh: fh, inode: f.inode, id: f.id}, nil
-	}
-
-	return nil, err
-}
-
-func (f *FileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) (err error) {
-	err = f.fh.Close()
-	return
-}
-
-func (f *FileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) (err error) {
-	f.Lock()
-	defer f.Unlock()
-
-	_, err = f.fh.Seek(req.Offset, os.SEEK_SET)
-	if err != nil {
-		return
-	}
-
-	buf := make([]byte, req.Size)
-	n, err := f.fh.Read(buf)
-	if err != nil {
-		if err == io.EOF {
-			return nil
-		}
-		return err
-	}
-	resp.Data = buf[:n]
-	return err
-}
-
-func (d *DirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-
-	e := make([]fuse.Dirent, len(d.entries))
-
-	f := 0
-	for i := range d.entries {
-		e[f].Inode = d.entries[i].Inode()
-		e[f].Name = i
-		switch d.entries[i].(type) {
-		case *DirNode:
-			e[f].Type = fuse.DT_Dir
-		default:
-			e[f].Type = fuse.DT_File
-		}
-		f++
-	}
-
-	return e, nil
 }
