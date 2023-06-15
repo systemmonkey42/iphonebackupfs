@@ -6,5 +6,7 @@ install:
 	mv iphonefs /usr/local/bin
 
 push:
+	git push "https://github.com/systemmonkey42/iphonefs" "develop:main"
+	git push "https://github.com/systemmonkey42/iphonefs" "develop:develop"
 	git push --tags "https://github.com/systemmonkey42/iphonefs" "develop:main"
 	git push --tags "https://github.com/systemmonkey42/iphonefs" "develop:develop"

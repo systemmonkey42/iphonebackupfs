@@ -8,14 +8,29 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var (
+	uniqueID uint64
+)
+
+func nextID() uint64 {
+	for {
+		val := atomic.LoadUint64(&uniqueID)
+		if atomic.CompareAndSwapUint64(&uniqueID, val, val+1) {
+			return val
+		}
+	}
+}
+
 type NodeEntry interface {
-	Add(uint64, string, string, string)
+	Add(string, string, string)
 	Find(string) NodeEntry
+	Fullname() string
 	Name() string
 	ID() string
 	Dump()
@@ -42,6 +57,13 @@ type FileHandle struct {
 	pos   int64
 }
 
+func (f *FileHandle) Sync() func() {
+	f.Lock()
+	return func() {
+		f.Unlock()
+	}
+}
+
 func (f *FileNode) Dump() {
 	debug("FileNode:Dump Called")
 	fmt.Printf(" %s [ %s ]\n", f.name, f.id)
@@ -63,6 +85,11 @@ func (d *DirNode) Inode() uint64 {
 	return d.inode
 }
 
+func (d *DirNode) Fullname() string {
+	debug("DirNode:Fullname Called")
+	return ""
+}
+
 func (d *DirNode) Dump() {
 	debug("DirNode:Dump Called")
 	fmt.Printf("%s /\n", d.name)
@@ -71,7 +98,7 @@ func (d *DirNode) Dump() {
 	}
 }
 
-func (f *FileNode) Add(inode uint64, id, domain, path string) {
+func (f *FileNode) Add(id, domain, path string) {
 	debug("FileNode:Add Called")
 }
 
@@ -116,6 +143,7 @@ func cleanDomain(d string) []string {
 				if w {
 					s = s + " "
 				}
+				w = false
 			} else if unicode.IsLower(l) {
 				w = true
 			}
@@ -134,7 +162,7 @@ func cleanDomain(d string) []string {
 	return p
 }
 
-func (d *DirNode) Add(inode uint64, id, domain, path string) {
+func (d *DirNode) Add(id, domain, path string) {
 	debug("DirNode:Add Called: %s %-32s %s", id, domain, path)
 	p := strings.Split(path, "/")
 	fp := d
@@ -150,7 +178,7 @@ func (d *DirNode) Add(inode uint64, id, domain, path string) {
 	for i := range p {
 		if i == lp {
 			fp.entries[p[i]] = &FileNode{
-				inode: inode,
+				inode: nextID(),
 				name:  p[i],
 				id:    id,
 			}
@@ -164,7 +192,7 @@ func (d *DirNode) Add(inode uint64, id, domain, path string) {
 				}
 			} else {
 				fp.entries[p[i]] = &DirNode{
-					inode:   inode,
+					inode:   nextID(),
 					name:    p[i],
 					entries: make(map[string]NodeEntry),
 				}
@@ -220,13 +248,11 @@ func (d *DB) ReadListing() (NodeEntry, error) {
 		entries: make(map[string]NodeEntry),
 	}
 
-	inode := uint64(1)
 	for r.Next() {
 		var id, path, domain string
 		r.Scan(&id, &path, &domain)
 		if global.AllDomains || domain == global.Domain {
-			dirs.Add(inode, id, domain, path)
-			inode++
+			dirs.Add(id, domain, path)
 		}
 	}
 

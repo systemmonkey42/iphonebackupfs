@@ -164,8 +164,7 @@ func (f *FileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) (err
 
 func (f *FileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) (err error) {
 	debug("FileHandle:Read Called")
-	f.Lock()
-	defer f.Unlock()
+	f.Sync()()
 
 	_, err = f.fh.Seek(req.Offset, os.SEEK_SET)
 	if err != nil {

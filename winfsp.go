@@ -52,22 +52,22 @@ type FSNode struct {
 	opencnt int
 }
 
-func NewFSNode(e NodeEntry, uid, gid uint32) *FSNode {
-	node := &FSNode{
-		NodeEntry: e,
-	}
-	if filenode, ok := e.(*FileNode); ok {
-		file := filenode.Fullname()
+func newFSFileNode(e NodeEntry, uid, gid uint32) *FSNode {
 
-		if info, err := os.Stat(file); err == nil {
+	file := e.Fullname()
 
-			Size := int64(info.Size())
-			Blocks := int64((Size + 511) / 512)
+	if info, err := os.Stat(file); err == nil {
 
-			t := fuse.NewTimespec(info.ModTime())
-			node.stat = fuse.Stat_t{
+		Size := int64(info.Size())
+		Blocks := int64((Size + 511) / 512)
+
+		t := fuse.NewTimespec(info.ModTime())
+
+		return &FSNode{
+			NodeEntry: e,
+			stat: fuse.Stat_t{
 				Dev:      0,
-				Ino:      filenode.inode,
+				Ino:      e.Inode(),
 				Mode:     0640 | fuse.S_IFREG,
 				Nlink:    1,
 				Uid:      uid,
@@ -81,36 +81,51 @@ func NewFSNode(e NodeEntry, uid, gid uint32) *FSNode {
 				Blocks:   Blocks,
 				Birthtim: t,
 				Flags:    0,
-			}
-		} else {
-			fmt.Printf("FAILED TO STAT %s\n", file)
+			},
 		}
+	}
 
-	} else {
-		tmsp := fuse.Now()
-		node.stat = fuse.Stat_t{
-			Ino:      e.(*DirNode).inode,
+	return nil
+}
+
+func newFSDirNode(e NodeEntry, uid, gid uint32) *FSNode {
+	t := fuse.Now()
+
+	return &FSNode{
+		NodeEntry: e,
+
+		stat: fuse.Stat_t{
+			Ino:      e.Inode(),
 			Mode:     0750 | fuse.S_IFDIR,
 			Nlink:    2,
 			Uid:      uid,
 			Gid:      gid,
-			Atim:     tmsp,
-			Mtim:     tmsp,
-			Ctim:     tmsp,
-			Birthtim: tmsp,
+			Atim:     t,
+			Mtim:     t,
+			Ctim:     t,
+			Birthtim: t,
 			Flags:    0,
-		}
+		},
 	}
+}
 
-	return node
+func newFSNode(e NodeEntry, uid, gid uint32) *FSNode {
+
+	switch e.(type) {
+	case *FileNode:
+		return newFSFileNode(e, uid, gid)
+	case *DirNode:
+		return newFSDirNode(e, uid, gid)
+	}
+	return nil
 }
 
 func (fs *FS) makeNode(e NodeEntry) *FSNode {
 	uid, gid, _ := fuse.Getcontext()
-	return NewFSNode(e, uid, gid)
+	return newFSNode(e, uid, gid)
 }
 
-func (fs *FS) LookupNode(path string) *FSNode {
+func (fs *FS) lookupNode(path string) *FSNode {
 	debug("FS:LookupNode Called: %s", path)
 	e := fs.root.NodeEntry
 
@@ -142,7 +157,7 @@ func (fs *FS) LookupNode(path string) *FSNode {
 func (fs *FS) getNode(path string, fh uint64) *FSNode {
 	debug("FS:getNode Called")
 	if ^uint64(0) == fh {
-		node := fs.LookupNode(path)
+		node := fs.lookupNode(path)
 		return node
 	}
 
@@ -168,6 +183,7 @@ func NewFS() *FS {
 
 func (fs *FS) Init() {
 	debug("FS:Init Called")
+	defer fs.Sync()()
 
 	fs.root = fs.makeNode(global.FSRoot)
 	fs.open = make(map[uint64]*FSNode)
@@ -298,6 +314,7 @@ func (*FS) Flush(path string, fh uint64) int {
 func (fs *FS) Release(path string, fh uint64) int {
 	debug("FS:Release Called")
 	defer fs.Sync()()
+
 	return fs.closeNode(fh)
 }
 
@@ -316,7 +333,7 @@ func (*FS) Lock(path string, cmd int, lock *Lock_t, fh uint64) int {
 func (fs *FS) openNode(path string, isdir bool) (errc int, fh uint64) {
 
 	var err error
-	node := fs.LookupNode(path)
+	node := fs.lookupNode(path)
 
 	if nil == node {
 		return -fuse.ENOENT, ^uint64(0)
@@ -337,7 +354,6 @@ func (fs *FS) openNode(path string, isdir bool) (errc int, fh uint64) {
 	}
 
 	return 0, node.stat.Ino
-	//return -fuse.ENOSYS, ^uint64(0)
 }
 
 func (fs *FS) closeNode(fh uint64) int {
@@ -358,6 +374,7 @@ func (fs *FS) closeNode(fh uint64) int {
 func (fs *FS) Opendir(path string) (int, uint64) {
 	debug("FS:Opendir Called")
 	defer fs.Sync()()
+
 	err, fh := fs.openNode(path, true)
 	return err, fh
 }
@@ -391,6 +408,7 @@ func (fs *FS) Readdir(path string,
 func (fs *FS) Releasedir(path string, fh uint64) int {
 	debug("FS:Releasedir Called")
 	defer fs.Sync()()
+
 	return fs.closeNode(fh)
 }
 
