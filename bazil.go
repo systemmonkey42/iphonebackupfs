@@ -14,7 +14,7 @@ import (
 	"bazil.org/fuse/fs"
 )
 
-func mount(path, mountpoint string) (err error) {
+func mount(mountpoint string) (err error) {
 	c, err := fuse.Mount(mountpoint,
 		fuse.FSName("iphone"),
 		fuse.Subtype("iphonebackupfs"),
