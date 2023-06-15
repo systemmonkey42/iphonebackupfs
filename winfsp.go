@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/winfsp/cgofuse/fuse"
 )
@@ -61,22 +60,26 @@ func NewFSNode(e NodeEntry, uid, gid uint32) *FSNode {
 		file := filenode.Fullname()
 
 		if info, err := os.Stat(file); err == nil {
-			stat := info.Sys().(*syscall.Stat_t)
 
+			Size := int64(info.Size())
+			Blocks := int64((Size + 511) / 512)
+
+			t := fuse.NewTimespec(info.ModTime())
 			node.stat = fuse.Stat_t{
-				Dev:      stat.Dev,
+				Dev:      0,
 				Ino:      filenode.inode,
-				Mode:     0640 | fuse.S_IFREG, // stat.Mode
+				Mode:     0640 | fuse.S_IFREG,
 				Nlink:    1,
 				Uid:      uid,
 				Gid:      gid,
-				Atim:     fuse.Timespec(stat.Atim),
-				Mtim:     fuse.Timespec(stat.Mtim),
-				Ctim:     fuse.Timespec(stat.Ctim),
-				Size:     stat.Size,
-				Blksize:  stat.Blksize,
-				Blocks:   stat.Blocks,
-				Birthtim: fuse.Timespec(stat.Ctim),
+				Rdev:     0,
+				Size:     Size,
+				Atim:     t,
+				Mtim:     t,
+				Ctim:     t,
+				Blksize:  512,
+				Blocks:   Blocks,
+				Birthtim: t,
 				Flags:    0,
 			}
 		} else {
