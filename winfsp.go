@@ -1,3 +1,6 @@
+//go:build winfsp
+// +build winfsp
+
 package main
 
 import (
