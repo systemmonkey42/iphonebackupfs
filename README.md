@@ -19,13 +19,15 @@ The following packages (when building on ubuntu) are needed:
 Build with the following command:
 
 ```
-go build .
+go build -tags <mode> .
 ```
+
+Where __mode__ is one of `bazil` for the `bazil/fuse` library (fast, linux only) or `winfsp` for the windows compatible implementation.
 
 If you have issues building, or simply want a smaller executable, try the following:
 
 ```
-go build --tags osusergo,netgo -o iphonefs -ldflags "-w -s" .
+go build -tags osusergo,netgo -o iphonefs -ldflags "-w -s" .
 ```
 
 Move the resulting binary to somewhere accessible
