@@ -5,8 +5,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/winfsp/cgofuse/fuse"
 )
@@ -40,7 +42,6 @@ type FS struct {
 	sync.Mutex
 	*fuse.FileSystemBase
 
-	ino  uint64
 	root *FSNode
 	open map[uint64]*FSNode
 }
@@ -48,21 +49,45 @@ type FS struct {
 type FSNode struct {
 	NodeEntry
 	stat    fuse.Stat_t
+	fh      *os.File
 	opencnt int
 }
 
-func NewFSNode(e NodeEntry, ino uint64, uid, gid uint32) *FSNode {
+func NewFSNode(e NodeEntry, uid, gid uint32) *FSNode {
 	node := &FSNode{
 		NodeEntry: e,
 	}
 	if filenode, ok := e.(*FileNode); ok {
-		fmt.Printf("File = %s\n", filenode.Fullname())
+		file := filenode.Fullname()
+
+		if info, err := os.Stat(file); err == nil {
+			stat := info.Sys().(*syscall.Stat_t)
+
+			node.stat = fuse.Stat_t{
+				Dev:      stat.Dev,
+				Ino:      filenode.inode,
+				Mode:     0640 | fuse.S_IFREG, // stat.Mode
+				Nlink:    1,
+				Uid:      uid,
+				Gid:      gid,
+				Atim:     fuse.Timespec(stat.Atim),
+				Mtim:     fuse.Timespec(stat.Mtim),
+				Ctim:     fuse.Timespec(stat.Ctim),
+				Size:     stat.Size,
+				Blksize:  stat.Blksize,
+				Blocks:   stat.Blocks,
+				Birthtim: fuse.Timespec(stat.Ctim),
+				Flags:    0,
+			}
+		} else {
+			fmt.Printf("FAILED TO STAT %s\n", file)
+		}
+
 	} else {
-		fmt.Printf("Directory details\n")
 		tmsp := fuse.Now()
 		node.stat = fuse.Stat_t{
-			Ino:      ino,
-			Mode:     0644 | fuse.S_IFDIR,
+			Ino:      e.(*DirNode).inode,
+			Mode:     0750 | fuse.S_IFDIR,
 			Nlink:    2,
 			Uid:      uid,
 			Gid:      gid,
@@ -79,21 +104,40 @@ func NewFSNode(e NodeEntry, ino uint64, uid, gid uint32) *FSNode {
 
 func (fs *FS) makeNode(e NodeEntry) *FSNode {
 	uid, gid, _ := fuse.Getcontext()
-	return NewFSNode(global.FSRoot, fs.ino, uid, gid)
+	return NewFSNode(e, uid, gid)
 }
 
 func (fs *FS) LookupNode(path string) *FSNode {
-	debug("FS:LookupNode Called")
-	n := fs.root
+	debug("FS:LookupNode Called: %s", path)
+	e := fs.root.NodeEntry
 
-	fmt.Printf("Lookup path [%s]\n", path)
 	for _, c := range split(path) {
-		fmt.Printf("Checking for %s\n", c)
+		if c != "" {
+			switch e.(type) {
+			case *DirNode:
+				e = e.(*DirNode).entries[c]
+			default:
+				//fmt.Printf("-- LOOKUP NODE ABORT: %s\n", path)
+				return nil
+			}
+		}
 	}
-	return n
+	if e == nil {
+		//fmt.Printf("Lookup returning node-not-found: %s\n", path)
+		return nil
+	}
+
+	if n, ok := fs.open[e.Inode()]; ok {
+		//fmt.Printf("Lookup returning existing node... \n")
+		return n
+	}
+
+	//fmt.Printf("Lookup returning %#v\n", e.Name())
+	return fs.makeNode(e)
 }
 
 func (fs *FS) getNode(path string, fh uint64) *FSNode {
+	debug("FS:getNode Called")
 	if ^uint64(0) == fh {
 		node := fs.LookupNode(path)
 		return node
@@ -121,7 +165,6 @@ func NewFS() *FS {
 
 func (fs *FS) Init() {
 	debug("FS:Init Called")
-	fs.ino = 0
 
 	fs.root = fs.makeNode(global.FSRoot)
 	fs.open = make(map[uint64]*FSNode)
@@ -201,18 +244,21 @@ func (*FS) Create(path string, flags int, mode uint32) (int, uint64) {
 	return -fuse.ENOSYS, ^uint64(0)
 }
 
-func (*FS) Open(path string, flags int) (int, uint64) {
+func (fs *FS) Open(path string, flags int) (int, uint64) {
 	debug("FS:Open Called")
-	return -fuse.ENOSYS, ^uint64(0)
+	defer fs.Sync()()
+
+	return fs.openNode(path, false)
 }
 
 func (fs *FS) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
-	debug("FS:Getattr Called")
-	fmt.Printf("Getattr: path = %s\n", path)
+	debug("FS:Getattr Called [%s] [%d]", path, fh)
 	defer fs.Sync()()
 
 	node := fs.getNode(path, fh)
+
 	if node == nil {
+		debug("FS:Getattr lookup failed, returning not-found: %s\n", path)
 		return -fuse.ENOENT
 	}
 
@@ -225,9 +271,15 @@ func (*FS) Truncate(path string, size int64, fh uint64) int {
 	return -fuse.ENOSYS
 }
 
-func (*FS) Read(path string, buff []byte, ofst int64, fh uint64) int {
+func (fs *FS) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
 	debug("FS:Read Called")
-	return -fuse.ENOSYS
+	defer fs.Sync()()
+
+	node := fs.getNode(path, fh)
+
+	node.fh.Seek(ofst, os.SEEK_SET)
+	n, _ = node.fh.Read(buff)
+	return
 }
 
 func (*FS) Write(path string, buff []byte, ofst int64, fh uint64) int {
@@ -240,9 +292,10 @@ func (*FS) Flush(path string, fh uint64) int {
 	return -fuse.ENOSYS
 }
 
-func (*FS) Release(path string, fh uint64) int {
+func (fs *FS) Release(path string, fh uint64) int {
 	debug("FS:Release Called")
-	return -fuse.ENOSYS
+	defer fs.Sync()()
+	return fs.closeNode(fh)
 }
 
 func (*FS) Fsync(path string, datasync bool, fh uint64) int {
@@ -259,12 +312,25 @@ func (*FS) Lock(path string, cmd int, lock *Lock_t, fh uint64) int {
 
 func (fs *FS) openNode(path string, isdir bool) (errc int, fh uint64) {
 
+	var err error
 	node := fs.LookupNode(path)
 
-	node.opencnt++
+	if nil == node {
+		return -fuse.ENOENT, ^uint64(0)
+	}
 
-	if 1 == node.opencnt {
+	if 0 == node.opencnt {
+		if !isdir {
+			fn := node.NodeEntry.(*FileNode).Fullname()
+			//fmt.Printf("Calling OS.OPEN on %s\n", fn)
+			node.fh, err = os.Open(fn)
+			if err != nil {
+				fmt.Printf("RETURNING TOTAL FAILURE\n")
+				return -fuse.EIO, ^uint64(0)
+			}
+		}
 		fs.open[node.stat.Ino] = node
+		node.opencnt++
 	}
 
 	return 0, node.stat.Ino
@@ -272,17 +338,17 @@ func (fs *FS) openNode(path string, isdir bool) (errc int, fh uint64) {
 }
 
 func (fs *FS) closeNode(fh uint64) int {
-	debug("FS:closeNode Called")
+	debug("FS:closeNode Called [%d]", fh)
 	if node, ok := fs.open[fh]; ok {
 		if 0 < node.opencnt {
 			node.opencnt--
 		}
 		if 0 == node.opencnt {
+			fs.open[fh].fh.Close()
 			delete(fs.open, fh)
 		}
 		return 0
 	}
-	fmt.Printf("closeNode: returning failz\n")
 	return -fuse.EBADF
 }
 
@@ -297,13 +363,12 @@ func (fs *FS) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) int {
-	debug("FS:Readdir Called")
+	debug("FS:Readdir Called [%s] [%d]", path, fh)
 	defer fs.Sync()()
 
 	node := fs.getNode(path, fh)
 	e := node.NodeEntry.(*DirNode).entries
 	for i := range e {
-		fmt.Printf("i = %v\n", i)
 		s := new(fuse.Stat_t)
 		switch e[i].(type) {
 		case *DirNode:
