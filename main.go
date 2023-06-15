@@ -126,7 +126,7 @@ func main() {
 			log.Fatalf("%s: %v\n", global.Root, err)
 		}
 
-		if err = mount(global.Root, mountpoint); err != nil {
+		if err = mount(mountpoint); err != nil {
 			log.Fatal(err)
 		}
 		debug("Completed.")

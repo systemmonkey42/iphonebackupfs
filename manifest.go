@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type NodeEntry interface {
