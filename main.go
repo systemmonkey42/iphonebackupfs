@@ -9,10 +9,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-
-	"bazil.org/fuse"
-	"bazil.org/fuse/fs"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 var progName = filepath.Base(os.Args[0])
@@ -143,37 +139,11 @@ func HandleSignals(mountpoint string) {
 		for range ch {
 			fmt.Printf("\rCtrl-C detected. Unmounting %s\n", mountpoint)
 			debug("Unmounting filesystem")
-			fuse.Unmount(mountpoint)
+			unmount(mountpoint)
 			signal.Stop(ch)
 			return
 		}
 	}()
 	debug("Enabling signal handlers")
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-}
-
-func mount(path, mountpoint string) (err error) {
-	c, err := fuse.Mount(mountpoint,
-		fuse.FSName("iphone"),
-		fuse.Subtype("iphonebackupfs"),
-		//fuse.AllowOther(),
-		fuse.ReadOnly(),
-	)
-	if err != nil {
-		return err
-	}
-	debug("FUSE iniitiaalized")
-	defer c.Close()
-
-	filesys := &FS{DB: &DB{}, File: path}
-
-	HandleSignals(mountpoint)
-
-	debug("Serving files")
-	if err := fs.Serve(c, filesys); err != nil {
-		return err
-	}
-	debug("File server exited")
-
-	return nil
 }
