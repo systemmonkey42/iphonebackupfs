@@ -146,6 +146,18 @@ For example:
 iphonebackupfs '' /mnt/data
 ```
 
+# TODO
+
+Add support for encrypted backups.
+
+Based on the work found here:
+
+- https://stackoverflow.com/questions/1498342/how-to-decrypt-an-encrypted-apple-itunes-iphone-backup/13793043#13793043
+- https://github.com/dunhamsteve/ios
+- https://github.com/chiefbrain/ios
+
+It should be possible to provide complete support for browsing encrypted backups.
+
 
 # Issues
 
