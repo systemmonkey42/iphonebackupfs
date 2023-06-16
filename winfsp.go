@@ -423,8 +423,28 @@ func (*FS) Setxattr(path string, name string, value []byte, flags int) int {
 	return -fuse.ENOSYS
 }
 
-func (*FS) Getxattr(path string, name string) (int, []byte) {
-	debug("FS:Getxattr Called")
+var xattr map[string]int = map[string]int{
+	"user.iphone.file":   0,
+	"user.iphone.id":     1,
+	"user.iphone.domain": 2,
+}
+
+func (fs *FS) Getxattr(path string, name string) (int, []byte) {
+	debug("FS:Getxattr Called: [%s] [%s]", path, name)
+	if id, ok := xattr[name]; ok {
+		node := fs.lookupNode(path)
+		if node == nil {
+			return -fuse.ENOENT, nil
+		}
+		switch id {
+		case 0:
+			return 0, []byte(node.Fullname())
+		case 1:
+			return 0, []byte(node.ID())
+		case 2:
+			return 0, []byte(node.Domain())
+		}
+	}
 	return -fuse.ENOSYS, nil
 }
 
@@ -433,9 +453,27 @@ func (*FS) Removexattr(path string, name string) int {
 	return -fuse.ENOSYS
 }
 
-func (*FS) Listxattr(path string, fill func(name string) bool) int {
-	debug("FS:Listxattr Called")
-	return -fuse.ENOSYS
+func (fs *FS) Listxattr(path string, fill func(name string) bool) int {
+	debug("FS:Listxattr Called [%s]", path)
+	node := fs.lookupNode(path)
+	if node == nil {
+		debug("FS:Listxattr returning not-found")
+		return -fuse.ENOENT
+	}
+	switch node.NodeEntry.(type) {
+	case *DirNode:
+		if !fill("user.iphone.domain") {
+			return -fuse.ERANGE
+		}
+		return 0
+	case *FileNode:
+		for x := range xattr {
+			if !fill(x) {
+				return -fuse.ERANGE
+			}
+		}
+	}
+	return 0
 }
 
 var _ fuse.FileSystemInterface = (*FS)(nil)

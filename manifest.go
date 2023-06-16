@@ -33,6 +33,7 @@ type NodeEntry interface {
 	Fullname() string
 	Name() string
 	ID() string
+	Domain() string
 	Dump()
 	Inode() uint64
 }
@@ -40,13 +41,15 @@ type NodeEntry interface {
 type DirNode struct {
 	inode   uint64
 	name    string
+	domain  string
 	entries map[string]NodeEntry
 }
 
 type FileNode struct {
-	inode uint64
-	name  string
-	id    string
+	inode  uint64
+	name   string
+	domain string
+	id     string
 }
 
 type FileHandle struct {
@@ -105,6 +108,11 @@ func (f *FileNode) Add(id, domain, path string) {
 func (f *FileNode) Find(path string) NodeEntry {
 	debug("FileNode:Find Called")
 	return f
+}
+
+func (f *FileNode) Domain() string {
+	debug("FileNode:Domain Called")
+	return f.domain
 }
 
 func (f *FileNode) ID() string {
@@ -178,9 +186,10 @@ func (d *DirNode) Add(id, domain, path string) {
 	for i := range p {
 		if i == lp {
 			fp.entries[p[i]] = &FileNode{
-				inode: nextID(),
-				name:  p[i],
-				id:    id,
+				inode:  nextID(),
+				name:   p[i],
+				domain: domain,
+				id:     id,
 			}
 		} else {
 			fn, ok := fp.entries[p[i]]
@@ -194,6 +203,7 @@ func (d *DirNode) Add(id, domain, path string) {
 				fp.entries[p[i]] = &DirNode{
 					inode:   nextID(),
 					name:    p[i],
+					domain:  domain,
 					entries: make(map[string]NodeEntry),
 				}
 				fp = fp.entries[p[i]].(*DirNode)
@@ -201,6 +211,11 @@ func (d *DirNode) Add(id, domain, path string) {
 		}
 	}
 	return
+}
+
+func (d *DirNode) Domain() string {
+	debug("DirNode:Domain Called")
+	return d.domain
 }
 
 func (d *DirNode) Name() string {
