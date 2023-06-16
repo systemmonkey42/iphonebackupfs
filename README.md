@@ -20,11 +20,12 @@ The following are required when building on windows:
 - [MinGW-w64 Project](https://www.mingw-w64.org/)
   - I recommend installing the latest from GitHub release page. (https://github.com/niXman/mingw-builds-binaries/releases)
 
-After installation, you may need to set the following in your environment for `go build` to be able to locate WinFSP
+After installation, you may need to set the following in your environment for `go build` to be able to locate WinFSP. Note the
+use of `Progra~2` to avoid spaces in the path
 
 
 ```
-set CFLAGS=C:\Program Files (x86)\WinFsp\inc\fuse
+set CGO_CFLAGS=-O2 -g -Ic:\Progra~2\WinFsp\inc\fuse -LC:\Progra~2\WinFsp\lib
 ```
 
 ## Building
@@ -33,7 +34,7 @@ Build with the following command:
 
 
 ```
-go build -tags &lt;mode&gt; .
+go build -tags <mode> .
 ```
 
 
