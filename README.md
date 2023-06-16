@@ -20,13 +20,12 @@ The following are required when building on windows:
 - [MinGW-w64 Project](https://www.mingw-w64.org/)
   - I recommend installing the latest from GitHub release page. (https://github.com/niXman/mingw-builds-binaries/releases)
 
-After installation, you may need to set the following in your environment for `go build` to be able to locate WinFSP. Note the
-use of `Progra~2` to avoid spaces in the path
+The following are needed when cross-compiling for windows from linux.  Note that sqlite support requires mingw, however
+once you enable CGO and get mingw working, you may as well include CGO support for winfsp.
 
+- mingw-w64 package (via apt-get on ubuntu)
+- winfsp library files (easiest is to clone from http://github.com/winfsp/winfsp)
 
-```
-set CGO_CFLAGS=-O2 -g -Ic:\Progra~2\WinFsp\inc\fuse -LC:\Progra~2\WinFsp\lib
-```
 
 ## Building
 
@@ -45,11 +44,56 @@ Where __mode__ is one of
 
 **Note**: New features will only be added to the winfsp implementation, which will eventually become the default when building
 
+
+### Linux
+
+Building for linux is the simples.  The above command should work every time
+
+While testing the code, you might consider setting the environment variable `GOFLAGS` to include the tags
+
+
+```
+export GOFLAGS=0tags=winfsp
+```
+
+You can then test with `go run .`
+
+### Windows
+
+After installing WinFSP, you may need to set the following in your environment for `go build` to be able to locate WinFSP. Note the
+use of `Progra~2` to avoid spaces in the path
+
+
+```
+set CGO_CFLAGS=-O2 -g -Ic:\Progra~2\WinFsp\inc\fuse -LC:\Progra~2\WinFsp\lib
+```
+
+### Cross Compiling
+
+After installing the correct dependencies, a command such as the following should allow you to cross compile for windows.
+
+Some settings, paths or flags might need to be adjusted.
+
+
+```
+env CC='/usr/bin/x86_64-w64-mingw32-gcc-win32' CGO_CFLAGS="-O2 -g -I${PWD}/../winfsp/inc/fuse" CGO_ENABLED=1 GOOS="windows" GOARCH="amd64" go build --tags winfsp,osusergo,netgo -o iphonebackupfs.exe -ldflags "-w -s" .
+
+```
+
+### Troubleshooting
+
+
 If you have issues building (such as when building in a container), or simply want a smaller executable, try the following:
 
 ```
-go build -tags osusergo,netgo -o iphonebackupfs -ldflags "-w -s" .
+go build -tags winfsp,osusergo,netgo -o iphonebackupfs -ldflags "-w -s" .
 ```
+
+This should also be able to produce alpine compatible binaries.
+
+Note that the dependency on SQLite prevents the binary from being built staticly.
+
+## Installation
 
 Move the resulting binary to somewhere accessible
 

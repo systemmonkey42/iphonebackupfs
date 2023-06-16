@@ -15,6 +15,6 @@ push:
 
 package:
 	env GOOS="linux" GOARCH="amd64" go build --tags winfsp,osusergo,netgo -o iphonebackupfs -ldflags "-w -s" .
-	env CGO_ENABLED=1 GOOS="windows" GOARCH="amd64" go build --tags winfsp,osusergo,netgo -o iphonebackupfs.exe -ldflags "-w -s" .
+	env CC='/usr/bin/x86_64-w64-mingw32-gcc-win32' CGO_CFLAGS="-O2 -g -I${PWD}/../winfsp/inc/fuse" CGO_ENABLED=1 GOOS="windows" GOARCH="amd64" go build --tags winfsp,osusergo,netgo -o iphonebackupfs.exe -ldflags "-w -s" .
 	zip -9 iphonebackupfs-windows-$(build)-x86_64.zip iphonebackupfs.exe README.md
 	tar cvfz iphonebackupfs-linux-$(build)-amd64.tgz iphonebackupfs README.md
