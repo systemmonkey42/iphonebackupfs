@@ -133,13 +133,13 @@ func main() {
 	}
 }
 
-func HandleSignals(mountpoint string) {
+func HandleSignals(unmount func()) {
 	ch := make(chan os.Signal, 1)
 	go func() {
 		for range ch {
-			fmt.Printf("\rCtrl-C detected. Unmounting %s\n", mountpoint)
-			debug("Unmounting filesystem")
-			unmount(mountpoint)
+			debug("Received signal..")
+			fmt.Fprintf(os.Stderr, "\rCtrl-C detected. Unmounting.\n")
+			unmount()
 			signal.Stop(ch)
 			return
 		}

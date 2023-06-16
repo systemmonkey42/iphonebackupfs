@@ -1,5 +1,0 @@
-export GOFLAGS=-tags=winfsp
-#export GOFLAGS=-tags=bazil
-export ROOT=/export/datastore/backups/MobileSync/Backup/00008030-001819000A08802E
-export MOUNT=/mnt/phone
-# vim:ft=bash:

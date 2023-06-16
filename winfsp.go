@@ -23,14 +23,15 @@ func mount(mountpoint string) (err error) {
 	fs := NewFS()
 
 	host := fuse.NewFileSystemHost(fs)
-	host.Mount("", []string{mountpoint})
+
+	// cgofuse handles Ctrl-C internally and unmounts the filesystem.
+	// Just absorb it here.
+	HandleSignals(func() {
+	})
+
+	host.Mount(mountpoint, nil)
 
 	return nil
-}
-
-func unmount(mountpoint string) (err error) {
-	//err = fuse.Unmount(mountpoint)
-	return
 }
 
 func split(path string) []string {

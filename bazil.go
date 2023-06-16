@@ -29,7 +29,9 @@ func mount(mountpoint string) (err error) {
 
 	filesys := &FS{}
 
-	HandleSignals(mountpoint)
+	HandleSignals(func() {
+		unmount(mountpoint)
+	})
 
 	debug("Serving files")
 	if err := fs.Serve(c, filesys); err != nil {

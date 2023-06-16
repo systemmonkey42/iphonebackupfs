@@ -1,4 +1,4 @@
-module gitx.cf/dleblanc/iphonefs
+module gitx.cf/dleblanc/iphonebackupfs
 
 go 1.19
 
