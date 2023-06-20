@@ -1,0 +1,73 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+'on':
+  push:
+    branches: ['develop']
+  pull_request:
+    branches: ['develop']
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      - name: Install fuse development files
+        run: sudo apt-get install -y libfuse-dev
+
+      - name: Build
+        run: go build -v -tags winfsp -ldflags='-w -s' .
+
+      - name: Test
+        run: go test -v -tags winfsp .
+
+      - name: Add SHORT_SHA env property with commit short sha
+        run: echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-7`" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: iphonebackupfs-linux-amd64-${{ env.SHORT_SHA }}
+          path: iphonebackupfs
+
+  windows:
+    runs-on: windows-latest
+
+    env:
+      CGO_CFLAGS: -O2 -g -I${{ github.workspace }}\winfsp\inc\fuse
+      CGO_ENABLED: 1
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      - name: Check out dependency
+        uses: actions/checkout@master
+        with:
+          repository: winfsp/winfsp
+          path: winfsp
+
+      - name: Build
+        run: go build -v -tags winfsp -ldflags='-w -s' .
+
+      - name: Test
+        run: go test -v -tags winfsp .
+
+      - name: Get short SHA
+        run: echo "SHORT_SHA=$("${{ github.sha }}".SubString(0, 7))" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: iphonebackupfs-windows-amd64-${{ env.SHORT_SHA }}.exe
+          path: iphonebackupfs.exe

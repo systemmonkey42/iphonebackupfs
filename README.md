@@ -4,6 +4,14 @@ A golang project to mount an __unencrypted__ iPhone backup.
 
 Tested on linux (ubuntu-20.06 and later) and Windows 10 (21H2)
 
+![GitHub go.mod Go version (subdirectory of monorepo)](https://img.shields.io/github/go-mod/go-version/systemmonkey42/iphonebackupfs?style=square&logo=go)
+![GitHub tag (latest SemVer pre-release)](https://img.shields.io/github/v/tag/winfsp/winfsp?style=square&logo=git&label=WinFSP&link=https%3A%2F%2Fgithub.com%2Fwinfsp%2Fwinfsp)
+![Ubuntu package](https://img.shields.io/ubuntu/v/fuse3/focal?style=square&label=Fuse)
+
+Latest Build:
+
+[![Go](https://github.com/systemmonkey42/iphonebackupfs/actions/workflows/go.yml/badge.svg)](https://github.com/systemmonkey42/iphonebackupfs/actions/workflows/go.yml)
+
 # Building and Installation
 
 Use `git clone` to obtain the default branch (develop) and install __go 1.19+__
