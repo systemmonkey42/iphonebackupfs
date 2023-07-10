@@ -18,6 +18,7 @@ type Globals struct {
 	Debug       bool
 	AllDomains  bool
 	ListDomains bool
+	LowerCase   bool
 	Domain      string
 	Root        string
 	FSRoot      NodeEntry
@@ -36,6 +37,7 @@ type DB struct {
 func init() {
 	flag.BoolVar(&global.AllDomains, "A", false, "Show all backup file domains.")
 	flag.BoolVar(&global.ListDomains, "L", false, "List all domains in backup.")
+	flag.BoolVar(&global.LowerCase, "l", false, "Convert all filenames to lowercase.")
 	flag.BoolVar(&global.Debug, "v", false, "Verbose logging.")
 	flag.StringVar(&global.Domain, "d", "CameraRollDomain", "Select domain to mount.")
 }

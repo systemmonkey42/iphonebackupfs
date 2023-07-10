@@ -185,9 +185,26 @@ func (d *DirNode) Add(id, domain, path string) {
 
 	for i := range p {
 		if i == lp {
-			fp.entries[p[i]] = &FileNode{
+			name := p[i]
+			if global.LowerCase {
+				name = strings.ToLower(name)
+			}
+			name_base := filepath.Base(name)
+			name_ext := filepath.Ext(name)
+			name_idx := 1
+			// Scan to resolve duplicates
+			for {
+				if _, ok := fp.entries[name]; ok {
+					name = fmt.Sprintf("%s (%d).%s", name_base, name_idx, name_ext)
+					name_idx++
+				} else {
+					break
+				}
+			}
+
+			fp.entries[name] = &FileNode{
 				inode:  nextID(),
-				name:   p[i],
+				name:   name,
 				domain: domain,
 				id:     id,
 			}
