@@ -261,6 +261,7 @@ func (d *DB) ReadListing() (NodeEntry, error) {
 
 	var dirs NodeEntry = &DirNode{
 		entries: make(map[string]NodeEntry),
+		inode:   nextID(),
 	}
 
 	for r.Next() {
